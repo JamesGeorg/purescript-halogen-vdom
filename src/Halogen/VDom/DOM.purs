@@ -121,7 +121,7 @@ buildElem = EFn.mkEffectFn6 \(VDomSpec spec) build ns1 name1 as1 ch1 → do
       }
   pure $ mkStep $ Step node state patchElem haltElem
 
-patchElem ∷ ∀ a w. EFn.EffectFn2 (ElemState a) (VDom a) (VDomStep a)
+patchElem ∷ ∀ a. EFn.EffectFn2 (ElemState a) (VDom a) (VDomStep a)
 patchElem = EFn.mkEffectFn2 \state vdom → do
   let { build, node, attrs, ns: ns1, name: name1, children: ch1 } = state
   case vdom of
@@ -166,7 +166,7 @@ patchElem = EFn.mkEffectFn2 \state vdom → do
       EFn.runEffectFn1 haltElem state
       EFn.runEffectFn1 build vdom
 
-haltElem ∷ ∀ a w. EFn.EffectFn1 (ElemState a) Unit
+haltElem ∷ ∀ a. EFn.EffectFn1 (ElemState a) Unit
 haltElem = EFn.mkEffectFn1 \{ node, attrs, children } → do
   parent ← EFn.runEffectFn1 Util.parentNode node
   EFn.runEffectFn2 Util.removeChild node parent

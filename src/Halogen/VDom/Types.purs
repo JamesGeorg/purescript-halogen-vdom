@@ -5,11 +5,9 @@ module Halogen.VDom.Types
   ) where
 
 import Prelude
-import Data.Bifunctor (class Bifunctor, bimap)
 import Data.Maybe (Maybe)
 import Data.Newtype (class Newtype)
 import Data.Tuple (Tuple)
-import Unsafe.Coerce (unsafeCoerce)
 
 -- | The core virtual-dom tree type, where `a` is the type of attributes,
 -- | and `w` is the type of "widgets". Widgets are machines that have complete
