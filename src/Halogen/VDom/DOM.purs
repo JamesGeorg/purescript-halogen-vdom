@@ -4,7 +4,6 @@ module Halogen.VDom.DOM
   , buildText
   , buildElem
   , buildKeyed
-  , buildWidget
   ) where
 
 import Prelude
@@ -16,30 +15,29 @@ import Data.Nullable (toNullable)
 import Data.Tuple (Tuple(..), fst)
 import Effect.Uncurried as EFn
 import Foreign.Object as Object
-import Halogen.VDom.Machine (Machine, Step, Step'(..), extract, halt, mkStep, step, unStep)
+import Halogen.VDom.Machine (Machine, Step, Step'(..), extract, halt, mkStep, step)
 import Halogen.VDom.Machine as Machine
-import Halogen.VDom.Types (ElemName(..), Namespace(..), VDom(..), runGraft)
+import Halogen.VDom.Types (ElemName(..), Namespace(..), VDom(..))
 import Halogen.VDom.Util as Util
 import Web.DOM.Document (Document) as DOM
 import Web.DOM.Element (Element) as DOM
 import Web.DOM.Element as DOMElement
 import Web.DOM.Node (Node) as DOM
 
-type VDomMachine a w = Machine (VDom a w) DOM.Node
+type VDomMachine a = Machine (VDom a) DOM.Node
 
-type VDomStep a w = Step (VDom a w) DOM.Node
+type VDomStep a = Step (VDom a) DOM.Node
 
-type VDomInit i a w = EFn.EffectFn1 i (VDomStep a w)
+type VDomInit i a = EFn.EffectFn1 i (VDomStep a)
 
-type VDomBuilder i a w = EFn.EffectFn3 (VDomSpec a w) (VDomMachine a w) i (VDomStep a w)
+type VDomBuilder i a w = EFn.EffectFn3 (VDomSpec a) (VDomMachine a) i (VDomStep a)
 
-type VDomBuilder4 i j k l a w = EFn.EffectFn6 (VDomSpec a w) (VDomMachine a w) i j k l (VDomStep a w)
+type VDomBuilder4 i j k l a w = EFn.EffectFn6 (VDomSpec a) (VDomMachine a) i j k l (VDomStep a)
 
 -- | Widget machines recursively reference the configured spec to potentially
 -- | enable recursive trees of Widgets.
-newtype VDomSpec a w = VDomSpec
-  { buildWidget ∷ VDomSpec a w → Machine w DOM.Node
-  , buildAttributes ∷ DOM.Element → Machine a Unit
+newtype VDomSpec a = VDomSpec
+  { buildAttributes ∷ DOM.Element → Machine a Unit
   , document ∷ DOM.Document
   }
 
@@ -52,18 +50,16 @@ newtype VDomSpec a w = VDomSpec
 -- |   machine3 ← Machine.step machine2 vdomTree3
 -- |   ...
 -- | ````
-buildVDom ∷ ∀ a w. VDomSpec a w → VDomMachine a w
+buildVDom ∷ ∀ a. VDomSpec a → VDomMachine a
 buildVDom spec = build
   where
   build = EFn.mkEffectFn1 case _ of
     Text s → EFn.runEffectFn3 buildText spec build s
     Elem ns n a ch → EFn.runEffectFn6 buildElem spec build ns n a ch
     Keyed ns n a ch → EFn.runEffectFn6 buildKeyed spec build ns n a ch
-    Widget w → EFn.runEffectFn3 buildWidget spec build w
-    Grafted g → EFn.runEffectFn1 build (runGraft g)
 
 type TextState a w =
-  { build ∷ VDomMachine a w
+  { build ∷ VDomMachine a
   , node ∷ DOM.Node
   , value ∷ String
   }
@@ -74,12 +70,10 @@ buildText = EFn.mkEffectFn3 \(VDomSpec spec) build s → do
   let state = { build, node, value: s }
   pure $ mkStep $ Step node state patchText haltText
 
-patchText ∷ ∀ a w. EFn.EffectFn2 (TextState a w) (VDom a w) (VDomStep a w)
+patchText ∷ ∀ a w. EFn.EffectFn2 (TextState a w) (VDom a) (VDomStep a)
 patchText = EFn.mkEffectFn2 \state vdom → do
   let { build, node, value: value1 } = state
   case vdom of
-    Grafted g →
-      EFn.runEffectFn2 patchText state (runGraft g)
     Text value2
       | value1 == value2 →
           pure $ mkStep $ Step node state patchText haltText
@@ -96,16 +90,16 @@ haltText = EFn.mkEffectFn1 \{ node } → do
   parent ← EFn.runEffectFn1 Util.parentNode node
   EFn.runEffectFn2 Util.removeChild node parent
 
-type ElemState a w =
-  { build ∷ VDomMachine a w
+type ElemState a =
+  { build ∷ VDomMachine a
   , node ∷ DOM.Node
   , attrs ∷ Step a Unit
   , ns ∷ Maybe Namespace
   , name ∷ ElemName
-  , children ∷ Array (VDomStep a w)
+  , children ∷ Array (VDomStep a)
   }
 
-buildElem ∷ ∀ a w. VDomBuilder4 (Maybe Namespace) ElemName a (Array (VDom a w)) a w
+buildElem ∷ ∀ a w. VDomBuilder4 (Maybe Namespace) ElemName a (Array (VDom a)) a w
 buildElem = EFn.mkEffectFn6 \(VDomSpec spec) build ns1 name1 as1 ch1 → do
   el ← EFn.runEffectFn3 Util.createElement (toNullable ns1) name1 spec.document
   let
@@ -127,12 +121,10 @@ buildElem = EFn.mkEffectFn6 \(VDomSpec spec) build ns1 name1 as1 ch1 → do
       }
   pure $ mkStep $ Step node state patchElem haltElem
 
-patchElem ∷ ∀ a w. EFn.EffectFn2 (ElemState a w) (VDom a w) (VDomStep a w)
+patchElem ∷ ∀ a w. EFn.EffectFn2 (ElemState a) (VDom a) (VDomStep a)
 patchElem = EFn.mkEffectFn2 \state vdom → do
   let { build, node, attrs, ns: ns1, name: name1, children: ch1 } = state
   case vdom of
-    Grafted g →
-      EFn.runEffectFn2 patchElem state (runGraft g)
     Elem ns2 name2 as2 ch2 | Fn.runFn4 eqElemSpec ns1 name1 ns2 name2 → do
       case Array.length ch1, Array.length ch2 of
         0, 0 → do
@@ -174,7 +166,7 @@ patchElem = EFn.mkEffectFn2 \state vdom → do
       EFn.runEffectFn1 haltElem state
       EFn.runEffectFn1 build vdom
 
-haltElem ∷ ∀ a w. EFn.EffectFn1 (ElemState a w) Unit
+haltElem ∷ ∀ a w. EFn.EffectFn1 (ElemState a) Unit
 haltElem = EFn.mkEffectFn1 \{ node, attrs, children } → do
   parent ← EFn.runEffectFn1 Util.parentNode node
   EFn.runEffectFn2 Util.removeChild node parent
@@ -182,16 +174,16 @@ haltElem = EFn.mkEffectFn1 \{ node, attrs, children } → do
   EFn.runEffectFn1 halt attrs
 
 type KeyedState a w =
-  { build ∷ VDomMachine a w
+  { build ∷ VDomMachine a
   , node ∷ DOM.Node
   , attrs ∷ Step a Unit
   , ns ∷ Maybe Namespace
   , name ∷ ElemName
-  , children ∷ Object.Object (VDomStep a w)
+  , children ∷ Object.Object (VDomStep a)
   , length ∷ Int
   }
 
-buildKeyed ∷ ∀ a w. VDomBuilder4 (Maybe Namespace) ElemName a (Array (Tuple String (VDom a w))) a w
+buildKeyed ∷ ∀ a w. VDomBuilder4 (Maybe Namespace) ElemName a (Array (Tuple String (VDom a))) a w
 buildKeyed = EFn.mkEffectFn6 \(VDomSpec spec) build ns1 name1 as1 ch1 → do
   el ← EFn.runEffectFn3 Util.createElement (toNullable ns1) name1 spec.document
   let
@@ -214,12 +206,10 @@ buildKeyed = EFn.mkEffectFn6 \(VDomSpec spec) build ns1 name1 as1 ch1 → do
       }
   pure $ mkStep $ Step node state patchKeyed haltKeyed
 
-patchKeyed ∷ ∀ a w. EFn.EffectFn2 (KeyedState a w) (VDom a w) (VDomStep a w)
+patchKeyed ∷ ∀ a w. EFn.EffectFn2 (KeyedState a w) (VDom a) (VDomStep a)
 patchKeyed = EFn.mkEffectFn2 \state vdom → do
   let { build, node, attrs, ns: ns1, name: name1, children: ch1, length: len1 } = state
   case vdom of
-    Grafted g →
-      EFn.runEffectFn2 patchKeyed state (runGraft g)
     Keyed ns2 name2 as2 ch2 | Fn.runFn4 eqElemSpec ns1 name1 ns2 name2 →
       case len1, Array.length ch2 of
         0, 0 → do
@@ -269,39 +259,6 @@ haltKeyed = EFn.mkEffectFn1 \{ node, attrs, children } → do
   EFn.runEffectFn2 Util.removeChild node parent
   EFn.runEffectFn2 Util.forInE children (EFn.mkEffectFn2 \_ s → EFn.runEffectFn1 halt s)
   EFn.runEffectFn1 halt attrs
-
-type WidgetState a w =
-  { build ∷ VDomMachine a w
-  , widget ∷ Step w DOM.Node
-  }
-
-buildWidget ∷ ∀ a w. VDomBuilder w a w
-buildWidget = EFn.mkEffectFn3 \(VDomSpec spec) build w → do
-  res ← EFn.runEffectFn1 (spec.buildWidget (VDomSpec spec)) w
-  let
-    res' = res # unStep \(Step n s k1 k2) →
-      mkStep $ Step n { build, widget: res } patchWidget haltWidget
-  pure res'
-
-patchWidget ∷ ∀ a w. EFn.EffectFn2 (WidgetState a w) (VDom a w) (VDomStep a w)
-patchWidget = EFn.mkEffectFn2 \state vdom → do
-  let { build, widget } = state
-  case vdom of
-    Grafted g →
-      EFn.runEffectFn2 patchWidget state (runGraft g)
-    Widget w → do
-      res ← EFn.runEffectFn2 step widget w
-      let
-        res' = res # unStep \(Step n s k1 k2) →
-          mkStep $ Step n { build, widget: res } patchWidget haltWidget
-      pure res'
-    _ → do
-      EFn.runEffectFn1 haltWidget state
-      EFn.runEffectFn1 build vdom
-
-haltWidget ∷ forall a w. EFn.EffectFn1 (WidgetState a w) Unit
-haltWidget = EFn.mkEffectFn1 \{ widget } → do
-  EFn.runEffectFn1 halt widget
 
 eqElemSpec ∷ Fn.Fn4 (Maybe Namespace) ElemName (Maybe Namespace) ElemName Boolean
 eqElemSpec = Fn.mkFn4 \ns1 (ElemName name1) ns2 (ElemName name2) →
